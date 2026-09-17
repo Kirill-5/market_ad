@@ -8,7 +8,7 @@ from tests.conftest import FakeMessageBroker, FakeUnitOfWork
 
 
 class RaisingBroker(MessageBroker):
-    async def send(self, payload: dict[str, Any]) -> None:
+    async def send(self, payload: dict[str, Any], trace_id: str | None = None) -> None:
         raise RuntimeError("kafka unavailable")
 
 
@@ -41,6 +41,19 @@ async def test_relay_noop_when_outbox_empty(
     assert processed == 0
     assert fake_broker.sent == []
     assert not fake_uow.committed
+
+
+@pytest.mark.asyncio
+async def test_relay_forwards_trace_id_from_outbox_message(
+    fake_uow: FakeUnitOfWork, fake_broker: FakeMessageBroker
+) -> None:
+    await fake_uow.outbox.add("ad.created", {"ad_id": 1}, trace_id="demo-123")
+    await fake_uow.outbox.add("ad.updated", {"ad_id": 1})
+
+    relay = OutboxRelay(uow_factory=lambda: fake_uow, broker=fake_broker)
+    await relay._process_batch()
+
+    assert fake_broker.sent_trace_ids == ["demo-123", None]
 
 
 @pytest.mark.asyncio
